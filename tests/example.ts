@@ -5,6 +5,10 @@ import {
   Token,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import {
+  MetadataProgram,
+  Metadata,
+} from "@metaplex-foundation/mpl-token-metadata";
 import { Example } from "../target/types/example";
 
 describe("example", () => {
@@ -64,6 +68,7 @@ describe("example", () => {
       mint,
       auth.publicKey
     );
+    const metaplexMetadataAccount = await Metadata.getPDA(mint);
     await program.rpc.mintItem({
       accounts: {
         authority: auth.publicKey,
@@ -71,7 +76,9 @@ describe("example", () => {
         nftMint: mint,
         nftToken: ata, // get ata
         nftMetadata: metadata,
+        metaplexMetadataAccount: metaplexMetadataAccount,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+        tokenMetadataProgram: MetadataProgram.PUBKEY,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: anchor.web3.SystemProgram.programId,

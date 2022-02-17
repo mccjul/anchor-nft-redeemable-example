@@ -1,15 +1,18 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
+use std::str::FromStr;
 
 use anchor_spl::token::{self, Mint, Token, TokenAccount};
 use core::mem::size_of;
+use mpl_token_metadata::instruction::create_metadata_accounts_v2;
+use spl_token::instruction::AuthorityType;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
 #[program]
 pub mod example {
     use super::*;
-    use spl_token::instruction::AuthorityType;
+
     pub fn initialize(ctx: Context<Initialize>) -> ProgramResult {
         ctx.accounts.player_account.authority = ctx.accounts.authority.key();
         ctx.accounts.player_account.bump = *ctx.bumps.get("player_account").unwrap();
@@ -21,10 +24,43 @@ pub mod example {
     }
     pub fn mint_item(ctx: Context<MintItem>) -> ProgramResult {
         let item = ctx.accounts.player.items.remove(0);
-        // create metadata
+        // create metadata of game pda
         ctx.accounts.nft_metadata.item = item;
         ctx.accounts.nft_metadata.self_bump = *ctx.bumps.get("nft_metadata").unwrap();
         ctx.accounts.nft_metadata.mint = ctx.accounts.nft_mint.key();
+
+        // create metaplex tokenmetadata
+        let metadata_infos = vec![
+            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.metaplex_metadata_account.to_account_info(),
+            ctx.accounts.nft_mint.to_account_info(),
+            ctx.accounts.authority.to_account_info(),
+            ctx.accounts.token_metadata_program.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+            ctx.accounts.rent.to_account_info(),
+        ];
+
+        anchor_lang::solana_program::program::invoke(
+            &create_metadata_accounts_v2(
+                *ctx.accounts.token_metadata_program.key,      // Programid
+                *ctx.accounts.metaplex_metadata_account.key,   // metadata account
+                ctx.accounts.nft_mint.to_account_info().key(), //mint
+                *ctx.accounts.authority.key,                   //mint authority
+                *ctx.accounts.authority.key,                   // payer
+                *ctx.accounts.authority.key,                   // update authority
+                "TEST_NAME".to_string(),                       // name of the actual asset
+                "TEST_SYMBOL".to_string(), // Symbol that shows up in the explorer
+                "TEST_URI".to_string(),    // URI JSON
+                Some(vec![]),              // Creator shares
+                0,                         // Creator cut
+                true,                      // update_authority_is_signer
+                true,                      // is_mutable
+                None,                      // Collection
+                None,                      // Uses
+            ),
+            &metadata_infos[..],
+        )?;
 
         // We got to mint to your newly created wallet
         token::mint_to(
@@ -39,6 +75,7 @@ pub mod example {
             1,
         )?;
 
+        // Then we gotta make sure no one can ever mint again, uniqueness forever baby!
         token::set_authority(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info().clone(),
@@ -53,10 +90,16 @@ pub mod example {
 
         Ok(())
     }
+
     pub fn redeem(ctx: Context<Redeem>) -> ProgramResult {
+        // Do you haz
         require!(ctx.accounts.nft_token.amount == 1, InvalidTokenAmount);
+
+        // Put item back in game
         let item = ctx.accounts.nft_metadata.item;
         ctx.accounts.player.items.push(item);
+
+        // Burn token
         token::burn(
             CpiContext::new(
                 ctx.accounts.token_program.to_account_info().clone(),
@@ -109,7 +152,10 @@ pub struct MintItem<'info> {
     space = 8 + size_of::<Metadata>()
     )]
     pub nft_metadata: Account<'info, Metadata>,
+    #[account(mut)]
+    pub metaplex_metadata_account: UncheckedAccount<'info>,
     pub rent: Sysvar<'info, Rent>,
+    pub token_metadata_program: Program<'info, MetaplexTokenMetadata>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -165,4 +211,13 @@ pub struct Metadata {
 pub enum ErrorCode {
     #[msg("You don't own this token")]
     InvalidTokenAmount,
+}
+
+#[derive(Clone)]
+pub struct MetaplexTokenMetadata;
+
+impl anchor_lang::Id for MetaplexTokenMetadata {
+    fn id() -> Pubkey {
+        Pubkey::from_str("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s").unwrap()
+    }
 }
